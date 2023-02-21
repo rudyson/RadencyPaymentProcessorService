@@ -51,6 +51,7 @@ namespace RadencyPaymentProcessorService
 
         protected override void OnStop()
         {
+            // TODO: Save my log
         }
         private void ReadConfiguration()
         {
@@ -60,7 +61,7 @@ namespace RadencyPaymentProcessorService
         private void ReportError(Exception exception, string comment="", bool showDetails = true) {
             string log = String.Join(" | ", DateTime.Now, comment);
             if (showDetails)
-                String.Join(" | ", log, exception.Source,exception.Message, exception.ToString());
+                log = String.Join(" | ", log, exception.Source,exception.Message, exception.ToString());
             logger.Add(log);
         }
         private List<SourceRecord> ParseSource(string filePath,bool csvMode = false)
