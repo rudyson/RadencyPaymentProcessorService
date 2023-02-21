@@ -10,6 +10,12 @@ namespace RadencyPaymentProcessorService.Models.Output
     {
         public string Name { get; set; }
         public List<Payer> Payers { get; set; }
-        public decimal Total { get; }
+        public decimal Total
+        {
+            get
+            {
+                return this.Payers.Select(x => x.Payment).Sum();
+            }
+        }
     }
 }

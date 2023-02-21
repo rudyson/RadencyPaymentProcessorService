@@ -10,6 +10,8 @@ namespace RadencyPaymentProcessorService.Models.Output
     {
         public string City { get; set; }
         public List<Services> Services { get; set; }
-        public decimal Total { get; }
+        public decimal Total {
+            get { return this.Services.Select(x => x.Total).Sum(); }
+        }
     }
 }
