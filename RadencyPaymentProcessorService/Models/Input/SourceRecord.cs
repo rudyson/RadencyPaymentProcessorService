@@ -15,6 +15,10 @@ namespace RadencyPaymentProcessorService.Models.Input
         public DateTime Date { get; set; }
         public long Account_Number { get; set; }
         public string Service { get; set;}
+        public override string ToString()
+        {
+            return $"{First_Name},{Last_Name},\"{Address}\",{Payment},{Date},{Account_Number},{Service}";
+        }
 
     }
 }

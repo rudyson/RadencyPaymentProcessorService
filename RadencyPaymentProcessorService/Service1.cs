@@ -1,6 +1,7 @@
 ﻿using Microsoft.VisualBasic.FileIO;
 using RadencyPaymentProcessorService.Models.Input;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Configuration;
@@ -18,6 +19,7 @@ namespace RadencyPaymentProcessorService
     {
         private string input_source_path = string.Empty;
         private string output_source_path = string.Empty;
+        private string date_format = "yyyy-MM-dd";
         public Service1()
         {
             InitializeComponent();
@@ -29,13 +31,13 @@ namespace RadencyPaymentProcessorService
             List<SourceRecord> sourceRecords = new List<SourceRecord>();
             foreach(string csv in this.GetCsvFiles())
             {
-                sourceRecords.Concat(ParseSource(csv, true));
+                sourceRecords.Concat(this.ParseSource(csv, true));
             }
             foreach (string txt in this.GetTxtFiles())
             {
-                sourceRecords.Concat(ParseSource(txt, false));
+                sourceRecords.Concat(this.ParseSource(txt, false));
             }
-            
+            this.SaveSourceRecords(sourceRecords);
         }
 
         protected override void OnStop()
@@ -76,7 +78,7 @@ namespace RadencyPaymentProcessorService
                         // Extracting data
                         sourceRecord.Date = DateTime.ParseExact(
                             columns[4],
-                            "yyyy-MM-dd",
+                            date_format,
                             System.Globalization.CultureInfo.InvariantCulture);
                         // Parsing acc num info
                         sourceRecord.Payment = long.Parse(columns[5]);
@@ -108,6 +110,25 @@ namespace RadencyPaymentProcessorService
                            .Where(file => file.Name.EndsWith(".txt"))
                            .Select(file => file.Name).ToList();
             return txt_Files;
+        }
+        private void SaveSourceRecords(List<SourceRecord> sourceRecords)
+        {
+            // Current operation dir
+            string currentOutputPath = $@"{output_source_path}\{DateTime.Now.ToString(date_format)}";
+            string logFileName = "meta.log";
+            if (!Directory.Exists(currentOutputPath))
+            {
+                Directory.CreateDirectory(currentOutputPath);
+            }
+            
+            using (TextWriter tw = new StreamWriter(String.Join("/", currentOutputPath, logFileName)))
+            {
+                foreach (SourceRecord sr in sourceRecords)
+                {
+                    tw.WriteLine(sr);
+                }
+                tw.Close();
+            }
         }
     }
 }
