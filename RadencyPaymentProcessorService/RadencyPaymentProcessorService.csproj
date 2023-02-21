@@ -46,6 +46,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Models\Input\SourceRecord.cs" />
+    <Compile Include="Models\Output\Cities.cs" />
+    <Compile Include="Models\Output\Payer.cs" />
+    <Compile Include="Models\Output\Services.cs" />
     <Compile Include="ProjectInstaller.cs">
       <SubType>Component</SubType>
     </Compile>
