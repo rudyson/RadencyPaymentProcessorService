@@ -50,6 +50,7 @@ namespace RadencyPaymentProcessorService
                 logger.Add($"In \"{filename}\" are {txtSourceRecords.Count} elements");
                 sourceRecords.AddRange(txtSourceRecords);
             }
+            // Converting
             List<CityModel> cities = new List<CityModel>();
             foreach (string cityName in
                 sourceRecords
@@ -90,20 +91,22 @@ namespace RadencyPaymentProcessorService
                 }
                 cities.Add(city);
             }
+            // Serialization
             try
             {
-                string jsonResult = JsonSerializer.Serialize<List<CityModel>>(cities,
-                    new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                        WriteIndented = true
-                    });
+                JsonSerializerOptions options= new JsonSerializerOptions {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = true
+                };
+                options.Converters.Add(new Util.JsonDateConverter(date_format));
+                string jsonResult = JsonSerializer.Serialize<List<CityModel>>(cities,options);
                 logger.Add(jsonResult);
             }
             catch(Exception ex)
             {
                 ReportError(ex);
             }
+            // Saving meta.log
             this.SaveSourceRecords(sourceRecords);
         }
 
