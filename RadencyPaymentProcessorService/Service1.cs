@@ -2,23 +2,15 @@
 using RadencyPaymentProcessorService.Models.Input;
 using RadencyPaymentProcessorService.Models.Output;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Configuration;
 using System.Data;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Media;
 using System.ServiceProcess;
-using System.Text;
-using System.Threading.Tasks;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Linq.Expressions;
-using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace RadencyPaymentProcessorService
 {
@@ -41,8 +33,8 @@ namespace RadencyPaymentProcessorService
 
         protected override void OnStart(string[] args)
         {
+            // Reading configuration from App.config
             this.ReadConfiguration();
-
             // Processing
             List<SourceRecord> sourceRecords = new List<SourceRecord>();
             Dictionary<string,bool> processingQueue= new Dictionary<string,bool>();
@@ -59,14 +51,19 @@ namespace RadencyPaymentProcessorService
             // Processing files
             foreach (KeyValuePair<string, bool> kvp in processingQueue)
             {
-                // Reading Input *.txt or *.csv to SourceRecord model list
-                List<SourceRecord> readSourceRecords = this.ParseSource(kvp.Key, kvp.Value);
-                // Transforming SourceRecord list to CityModel list
-                List<CityModel> transformedCities = this.TransfromSourceData(readSourceRecords);
-                // Exporting CityModel list to json string
-                string jsonCities = this.SerializeCitiesToJson(transformedCities);
-                // Saving json
-                SaveJson(String.Join("/", GetTodaysDirectoryPath(), $"output{CurrentOutputNumber()}.json"), jsonCities);
+                // Processing each file in thread
+                Thread fileProcessingThread = new Thread(() =>
+                {
+                    // Reading Input *.txt or *.csv to SourceRecord model list
+                    List<SourceRecord> readSourceRecords = this.ParseSource(kvp.Key, kvp.Value);
+                    // Transforming SourceRecord list to CityModel list
+                    List<CityModel> transformedCities = this.TransfromSourceData(readSourceRecords);
+                    // Exporting CityModel list to json string
+                    string jsonCities = this.SerializeCitiesToJson(transformedCities);
+                    // Saving json
+                    SaveJson(String.Join("/", GetTodaysDirectoryPath(), $"output{CurrentOutputNumber()}.json"), jsonCities);
+                });
+                fileProcessingThread.Start();
             }
         }
 
