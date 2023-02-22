@@ -11,9 +11,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Media;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Linq.Expressions;
 
 namespace RadencyPaymentProcessorService
 {
@@ -32,19 +36,73 @@ namespace RadencyPaymentProcessorService
         {
             this.ReadConfiguration();
             List<SourceRecord> sourceRecords = new List<SourceRecord>();
-            foreach(string csv in this.GetCsvFiles())
+            foreach (string csv in this.GetCsvFiles())
             {
                 string filename = $@"{input_source_path}\{csv}";
                 List<SourceRecord> csvSourceRecords = this.ParseSource(filename, true);
                 logger.Add($"In \"{filename}\" are {csvSourceRecords.Count} elements");
-                sourceRecords.Concat(csvSourceRecords);
+                sourceRecords.AddRange(csvSourceRecords);
             }
             foreach (string txt in this.GetTxtFiles())
             {
                 string filename = $@"{input_source_path}\{txt}";
                 List<SourceRecord> txtSourceRecords = this.ParseSource(filename, false);
                 logger.Add($"In \"{filename}\" are {txtSourceRecords.Count} elements");
-                sourceRecords.Concat(txtSourceRecords);
+                sourceRecords.AddRange(txtSourceRecords);
+            }
+            List<CityModel> cities = new List<CityModel>();
+            foreach (string cityName in
+                sourceRecords
+                .Select(x => x.Address)
+                .Distinct())
+            {
+                CityModel city = new CityModel
+                {
+                    City = cityName,
+                    Services = new List<Service>()
+                };
+                foreach (string serviceName in
+                    sourceRecords
+                    .Where(x => cityName == x.Address)
+                    .Select(x => x.Service)
+                    .Distinct())
+                {
+                    Service service = new Service
+                    {
+                        Name = serviceName,
+                        Payers = new List<Payer>()
+                    };
+                    foreach (var user in
+                        sourceRecords
+                        .Where(x => x.Address == cityName && x.Service == serviceName)
+                        .Select(x => new { x.Last_name, x.First_name, x.Payment, x.Account_number, x.Date }))
+                    {
+                        Payer payer = new Payer
+                        {
+                            Name = String.Join(" ", user.Last_name, user.First_name),
+                            Account_number = user.Account_number,
+                            Date = user.Date,
+                            Payment = user.Payment
+                        };
+                        service.Payers.Add(payer);
+                    }
+                    city.Services.Add(service);
+                }
+                cities.Add(city);
+            }
+            try
+            {
+                string jsonResult = JsonSerializer.Serialize<List<CityModel>>(cities,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                        WriteIndented = true
+                    });
+                logger.Add(jsonResult);
+            }
+            catch(Exception ex)
+            {
+                ReportError(ex);
             }
             this.SaveSourceRecords(sourceRecords);
         }
@@ -58,13 +116,14 @@ namespace RadencyPaymentProcessorService
             input_source_path = ConfigurationManager.AppSettings["SourcePath"];
             output_source_path = ConfigurationManager.AppSettings["ProcessedDataPath"];
         }
-        private void ReportError(Exception exception, string comment="", bool showDetails = true) {
+        private void ReportError(Exception exception, string comment = "", bool showDetails = true)
+        {
             string log = String.Join(" | ", DateTime.Now, comment);
             if (showDetails)
-                log = String.Join(" | ", log, exception.Source,exception.Message, exception.ToString());
+                log = String.Join(" | ", log, exception.Source, exception.Message, exception.ToString());
             logger.Add(log);
         }
-        private List<SourceRecord> ParseSource(string filePath,bool csvMode = false)
+        private List<SourceRecord> ParseSource(string filePath, bool csvMode = false)
         {
             List<SourceRecord> records = new List<SourceRecord>();
             try
@@ -86,13 +145,13 @@ namespace RadencyPaymentProcessorService
                         string[] columns = textFieldParser.ReadFields();
                         try
                         {
-                            if (columns.Count()==7)
+                            if (columns.Count() == 7)
                             {
                                 SourceRecord sourceRecord = new SourceRecord();
                                 // Strings
-                                sourceRecord.First_Name = columns[0];
-                                sourceRecord.Last_Name = columns[1];
+                                sourceRecord.First_name = columns[0];
                                 sourceRecord.Address = columns[2];
+                                sourceRecord.Last_name = columns[1];
                                 sourceRecord.Service = columns[6];
                                 // Parsing payment info
                                 sourceRecord.Payment = Decimal.Parse(
@@ -104,7 +163,15 @@ namespace RadencyPaymentProcessorService
                                     date_format,
                                     System.Globalization.CultureInfo.InvariantCulture);
                                 // Parsing acc num info
-                                sourceRecord.Payment = long.Parse(columns[5]);
+                                sourceRecord.Account_number = long.Parse(columns[5]);
+                                // Retrieving city from address
+                                sourceRecord.Address = (columns[2].IndexOf(',') > -1) ?
+                                    columns[2].Split(',')[0] : columns[2];
+                                for (int i = 0; i<columns.Length; i++)
+                                {
+                                    logger.Add($"[{i}] {columns[i]}");
+                                }
+                                logger.Add($"Added: {sourceRecord.ToString()}");
                                 // Adding parced record
                                 records.Add(sourceRecord);
                             }
@@ -115,14 +182,14 @@ namespace RadencyPaymentProcessorService
                         }
                         catch (Exception ex)
                         {
-                            ReportError(ex, $"Exception at parsing file \"{filePath}\"");
+                            ReportError(ex, $"Exception at parsing file \"{filePath}\"", false);
                         }
                     }
                 }
             }
             catch (Microsoft.VisualBasic.FileIO.MalformedLineException ex)
             {
-                ReportError(ex, $"Attempting to open a broken file \"{filePath}\"");
+                ReportError(ex, $"Attempting to open a broken file \"{filePath}\"", false);
             }
             return records;
         }
@@ -152,7 +219,7 @@ namespace RadencyPaymentProcessorService
             {
                 Directory.CreateDirectory(currentOutputPath);
             }
-            
+
             using (TextWriter tw = new StreamWriter(String.Join("/", currentOutputPath, logFileName)))
             {
                 tw.WriteLine($"Service started at {DateTime.Now.ToShortTimeString()} Rows: {sourceRecords.Count}");

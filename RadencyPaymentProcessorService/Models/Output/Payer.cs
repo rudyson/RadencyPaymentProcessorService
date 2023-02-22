@@ -12,6 +12,6 @@ namespace RadencyPaymentProcessorService.Models.Output
         public string Name { get; set; }
         public decimal Payment { get; set; }
         public DateTime Date { get; set; }
-        public long Account_Number { get; set; }
+        public long Account_number { get; set; }
     }
 }

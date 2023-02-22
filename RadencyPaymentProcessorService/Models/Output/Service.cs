@@ -6,15 +6,15 @@ using System.Threading.Tasks;
 
 namespace RadencyPaymentProcessorService.Models.Output
 {
-    internal class Cities
+    internal class Service
     {
-        public string City { get; set; }
-        public List<Services> Services { get; set; }
+        public string Name { get; set; }
+        public List<Payer> Payers { get; set; }
         public decimal Total
         {
             get
             {
-                return this.Services.Select(x => x.Total).Sum();
+                return this.Payers.Select(x => x.Payment).Sum();
             }
         }
     }

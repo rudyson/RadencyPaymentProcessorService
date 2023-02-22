@@ -39,6 +39,8 @@
     <Reference Include="System.Configuration.Install" />
     <Reference Include="System.Core" />
     <Reference Include="System.Management" />
+    <Reference Include="System.Memory, Version=4.0.1.2, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL" />
+    <Reference Include="System.Text.Json, Version=6.0.0.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -49,9 +51,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Models\Input\SourceRecord.cs" />
-    <Compile Include="Models\Output\Cities.cs" />
+    <Compile Include="Models\Output\CityModel.cs" />
     <Compile Include="Models\Output\Payer.cs" />
-    <Compile Include="Models\Output\Services.cs" />
+    <Compile Include="Models\Output\Service.cs" />
     <Compile Include="ProjectInstaller.cs">
       <SubType>Component</SubType>
     </Compile>
