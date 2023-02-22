@@ -147,11 +147,19 @@ namespace RadencyPaymentProcessorService
                         {
                             if (columns.Count() == 7)
                             {
+                                // Checking fields are missing
+                                foreach (string column in columns)
+                                {
+                                    if (String.IsNullOrEmpty(column))
+                                    {
+                                        throw new ArgumentNullException();
+                                    }
+                                }
                                 SourceRecord sourceRecord = new SourceRecord();
                                 // Strings
                                 sourceRecord.First_name = columns[0];
-                                sourceRecord.Address = columns[2];
                                 sourceRecord.Last_name = columns[1];
+                                sourceRecord.Address = columns[2];
                                 sourceRecord.Service = columns[6];
                                 // Parsing payment info
                                 sourceRecord.Payment = Decimal.Parse(
@@ -167,11 +175,6 @@ namespace RadencyPaymentProcessorService
                                 // Retrieving city from address
                                 sourceRecord.Address = (columns[2].IndexOf(',') > -1) ?
                                     columns[2].Split(',')[0] : columns[2];
-                                for (int i = 0; i<columns.Length; i++)
-                                {
-                                    logger.Add($"[{i}] {columns[i]}");
-                                }
-                                logger.Add($"Added: {sourceRecord.ToString()}");
                                 // Adding parced record
                                 records.Add(sourceRecord);
                             }
