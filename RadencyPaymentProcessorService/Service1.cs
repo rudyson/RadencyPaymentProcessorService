@@ -118,6 +118,7 @@ namespace RadencyPaymentProcessorService
         {
             input_source_path = ConfigurationManager.AppSettings["SourcePath"];
             output_source_path = ConfigurationManager.AppSettings["ProcessedDataPath"];
+            date_format = ConfigurationManager.AppSettings["DateFormat"];
         }
         private void ReportError(Exception exception, string comment = "", bool showDetails = true)
         {
