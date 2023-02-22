@@ -18,6 +18,7 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Linq.Expressions;
+using System.Text.RegularExpressions;
 
 namespace RadencyPaymentProcessorService
 {
@@ -27,6 +28,12 @@ namespace RadencyPaymentProcessorService
         private string output_source_path = string.Empty;
         private string date_format = "yyyy-MM-dd";
         private List<string> logger = new List<string>();
+        private int output_file_num = -1;
+        // Telemetry for meta.log
+        private int telemetry_parsed_files = 0;
+        private int telemetry_parsed_lines = 0;
+        private int telemetry_found_errors = 0;
+        private HashSet<string> telemetry_invalid_files = new HashSet<string>();
         public Service1()
         {
             InitializeComponent();
@@ -35,84 +42,39 @@ namespace RadencyPaymentProcessorService
         protected override void OnStart(string[] args)
         {
             this.ReadConfiguration();
+
+            // Processing
             List<SourceRecord> sourceRecords = new List<SourceRecord>();
-            foreach (string csv in this.GetCsvFiles())
+            Dictionary<string,bool> processingQueue= new Dictionary<string,bool>();
+            // Getting list of csv files
+            foreach (string csvPath in this.GetCsvFiles())
             {
-                string filename = $@"{input_source_path}\{csv}";
-                List<SourceRecord> csvSourceRecords = this.ParseSource(filename, true);
-                logger.Add($"In \"{filename}\" are {csvSourceRecords.Count} elements");
-                sourceRecords.AddRange(csvSourceRecords);
+                processingQueue.Add($@"{input_source_path}\{csvPath}", true);
             }
-            foreach (string txt in this.GetTxtFiles())
+            // Getting list of txt files
+            foreach (string txtPath in this.GetTxtFiles())
             {
-                string filename = $@"{input_source_path}\{txt}";
-                List<SourceRecord> txtSourceRecords = this.ParseSource(filename, false);
-                logger.Add($"In \"{filename}\" are {txtSourceRecords.Count} elements");
-                sourceRecords.AddRange(txtSourceRecords);
+                processingQueue.Add($@"{input_source_path}\{txtPath}", false);
             }
-            // Converting
-            List<CityModel> cities = new List<CityModel>();
-            foreach (string cityName in
-                sourceRecords
-                .Select(x => x.Address)
-                .Distinct())
+            // Processing files
+            foreach (KeyValuePair<string, bool> kvp in processingQueue)
             {
-                CityModel city = new CityModel
-                {
-                    City = cityName,
-                    Services = new List<Service>()
-                };
-                foreach (string serviceName in
-                    sourceRecords
-                    .Where(x => cityName == x.Address)
-                    .Select(x => x.Service)
-                    .Distinct())
-                {
-                    Service service = new Service
-                    {
-                        Name = serviceName,
-                        Payers = new List<Payer>()
-                    };
-                    foreach (var user in
-                        sourceRecords
-                        .Where(x => x.Address == cityName && x.Service == serviceName)
-                        .Select(x => new { x.Last_name, x.First_name, x.Payment, x.Account_number, x.Date }))
-                    {
-                        Payer payer = new Payer
-                        {
-                            Name = String.Join(" ", user.Last_name, user.First_name),
-                            Account_number = user.Account_number,
-                            Date = user.Date,
-                            Payment = user.Payment
-                        };
-                        service.Payers.Add(payer);
-                    }
-                    city.Services.Add(service);
-                }
-                cities.Add(city);
+                // Reading Input *.txt or *.csv to SourceRecord model list
+                List<SourceRecord> readSourceRecords = this.ParseSource(kvp.Key, kvp.Value);
+                // Transforming SourceRecord list to CityModel list
+                List<CityModel> transformedCities = this.TransfromSourceData(readSourceRecords);
+                // Exporting CityModel list to json string
+                string jsonCities = this.SerializeCitiesToJson(transformedCities);
+                // Saving json
+                SaveJson(String.Join("/", GetTodaysDirectoryPath(), $"output{CurrentOutputNumber()}.json"), jsonCities);
             }
-            // Serialization
-            try
-            {
-                JsonSerializerOptions options= new JsonSerializerOptions {
-                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                    WriteIndented = true
-                };
-                options.Converters.Add(new Util.JsonDateConverter(date_format));
-                string jsonResult = JsonSerializer.Serialize<List<CityModel>>(cities,options);
-                logger.Add(jsonResult);
-            }
-            catch(Exception ex)
-            {
-                ReportError(ex);
-            }
-            // Saving meta.log
-            this.SaveSourceRecords(sourceRecords);
         }
 
         protected override void OnStop()
         {
-            // TODO: Save my log
+            // Saving logs
+            SaveMetaLog(String.Join("/", GetTodaysDirectoryPath(), "meta.log"));
+            SaveErrorLog(String.Join("/", GetTodaysDirectoryPath(), "error.log"));
         }
         private void ReadConfiguration()
         {
@@ -129,6 +91,7 @@ namespace RadencyPaymentProcessorService
         }
         private List<SourceRecord> ParseSource(string filePath, bool csvMode = false)
         {
+            telemetry_parsed_files++;
             List<SourceRecord> records = new List<SourceRecord>();
             try
             {
@@ -141,6 +104,7 @@ namespace RadencyPaymentProcessorService
                     bool firstLine = csvMode;
                     while (!textFieldParser.EndOfData)
                     {
+                        telemetry_parsed_lines++;
                         if (firstLine)
                         {
                             firstLine = false;
@@ -189,6 +153,8 @@ namespace RadencyPaymentProcessorService
                         }
                         catch (Exception ex)
                         {
+                            telemetry_found_errors++;
+                            telemetry_invalid_files.Add(filePath);
                             ReportError(ex, $"Exception at parsing file \"{filePath}\"", false);
                         }
                     }
@@ -196,6 +162,8 @@ namespace RadencyPaymentProcessorService
             }
             catch (Microsoft.VisualBasic.FileIO.MalformedLineException ex)
             {
+                telemetry_found_errors++;
+                telemetry_invalid_files.Add(filePath);
                 ReportError(ex, $"Attempting to open a broken file \"{filePath}\"", false);
             }
             return records;
@@ -217,29 +185,153 @@ namespace RadencyPaymentProcessorService
                            .Select(file => file.Name).ToList();
             return txt_Files;
         }
-        private void SaveSourceRecords(List<SourceRecord> sourceRecords)
+        private int CurrentOutputNumber()
         {
-            // Current operation dir
-            string currentOutputPath = $@"{output_source_path}\{DateTime.Now.ToString(date_format)}";
-            string logFileName = "meta.log";
-            if (!Directory.Exists(currentOutputPath))
+            if (output_file_num < 0)
             {
-                Directory.CreateDirectory(currentOutputPath);
+                DirectoryInfo outputSourcePath = new DirectoryInfo(this.GetTodaysDirectoryPath());
+                List<string> outputFiles = outputSourcePath.GetFiles("output*.json")
+                               .Where(file => file.Name.EndsWith(".json"))
+                               .Select(file => file.Name).ToList();
+                if (outputFiles.Count > 0)
+                {
+                    int maxNum = output_file_num;
+                    foreach (string file in outputFiles)
+                    {
+                        try
+                        {
+                            int curNum = Int32.Parse(file.Substring(6, file.Length - 11));
+                            if (maxNum < curNum)
+                            {
+                                maxNum = curNum;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            ReportError(ex, "Output number parsing error");
+                        }
+                    }
+                    output_file_num = maxNum + 1;
+                }
+                else
+                {
+                    output_file_num = 1;
+                }
+                return output_file_num;
             }
-
-            using (TextWriter tw = new StreamWriter(String.Join("/", currentOutputPath, logFileName)))
+            else
             {
-                tw.WriteLine($"Service started at {DateTime.Now.ToShortTimeString()} Rows: {sourceRecords.Count}");
-                foreach (string log in this.logger)
+                return ++output_file_num;
+            }
+        }
+        private List<CityModel> TransfromSourceData(List<SourceRecord> sourceRecords)
+        {
+            List<CityModel> cities = new List<CityModel>();
+            foreach (string cityName in
+                sourceRecords
+                .Select(x => x.Address)
+                .Distinct())
+            {
+                CityModel city = new CityModel
                 {
-                    tw.WriteLine(log);
-                }
-                foreach (SourceRecord sr in sourceRecords)
+                    City = cityName,
+                    Services = new List<Service>()
+                };
+                foreach (string serviceName in
+                    sourceRecords
+                    .Where(x => cityName == x.Address)
+                    .Select(x => x.Service)
+                    .Distinct())
                 {
-                    tw.WriteLine(sr);
+                    Service service = new Service
+                    {
+                        Name = serviceName,
+                        Payers = new List<Payer>()
+                    };
+                    foreach (var user in
+                        sourceRecords
+                        .Where(x => x.Address == cityName && x.Service == serviceName)
+                        .Select(x => new { x.Last_name, x.First_name, x.Payment, x.Account_number, x.Date }))
+                    {
+                        Payer payer = new Payer
+                        {
+                            Name = String.Join(" ", user.Last_name, user.First_name),
+                            Account_number = user.Account_number,
+                            Date = user.Date,
+                            Payment = user.Payment
+                        };
+                        service.Payers.Add(payer);
+                    }
+                    city.Services.Add(service);
                 }
+                cities.Add(city);
+            }
+            return cities;
+        }
+        private string SerializeCitiesToJson(List<CityModel> cities, bool prettify = true)
+        {
+            string jsonResult = string.Empty;
+            try
+            {
+                JsonSerializerOptions options = new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = prettify
+                };
+                options.Converters.Add(new Util.JsonDateConverter(date_format));
+                jsonResult = JsonSerializer.Serialize<List<CityModel>>(cities, options);
+            }
+            catch (Exception ex)
+            {
+                ReportError(ex);
+            }
+            return jsonResult;
+        }
+        private void SaveMetaLog(string path, bool reset = false)
+        {
+            if (reset)
+            {
+                telemetry_parsed_files = 0;
+                telemetry_parsed_lines = 0;
+                telemetry_found_errors = 0;
+                telemetry_invalid_files.Clear();
+            }
+            string log = String.Join(
+                Environment.NewLine,
+                $"parsed_files: {telemetry_parsed_files}",
+                $"parsed_lines: {telemetry_parsed_lines}",
+                $"found_errors: {telemetry_found_errors}",
+                $"invalid_files: [\"{String.Join("\", \"", telemetry_invalid_files)}\"]");
+            using (TextWriter tw = new StreamWriter(path))
+            {
+                tw.WriteLine(log);
                 tw.Close();
             }
+        }
+        private void SaveErrorLog(string path)
+        {
+            using (TextWriter tw = new StreamWriter(path))
+            {
+                tw.WriteLine(String.Join(Environment.NewLine,this.logger));
+                tw.Close();
+            }
+        }
+        private void SaveJson(string path, string jsonData)
+        {
+            using (TextWriter tw = new StreamWriter(path))
+            {
+                tw.WriteLine(jsonData);
+                tw.Close();
+            }
+        }
+        private string GetTodaysDirectoryPath()
+        {
+            string path = $@"{output_source_path}\{DateTime.Now.ToString(date_format)}";
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+            }
+            return path;
         }
     }
 }
