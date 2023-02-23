@@ -19,7 +19,7 @@ namespace RadencyPaymentProcessorService
         private string input_source_path = string.Empty;
         private string output_source_path = string.Empty;
         private string date_format = "yyyy-MM-dd";
-        private List<string> logger = new List<string>();
+		private List<string> logger = new List<string>();
         private int output_file_num = -1;
         // Telemetry for meta.log
         private int telemetry_parsed_files = 0;
@@ -35,36 +35,8 @@ namespace RadencyPaymentProcessorService
         {
             // Reading configuration from App.config
             this.ReadConfiguration();
-            // Processing
-            List<SourceRecord> sourceRecords = new List<SourceRecord>();
-            Dictionary<string,bool> processingQueue= new Dictionary<string,bool>();
-            // Getting list of csv files
-            foreach (string csvPath in this.GetCsvFiles())
-            {
-                processingQueue.Add($@"{input_source_path}\{csvPath}", true);
-            }
-            // Getting list of txt files
-            foreach (string txtPath in this.GetTxtFiles())
-            {
-                processingQueue.Add($@"{input_source_path}\{txtPath}", false);
-            }
-            // Processing files
-            foreach (KeyValuePair<string, bool> kvp in processingQueue)
-            {
-                // Processing each file in thread
-                Thread fileProcessingThread = new Thread(() =>
-                {
-                    // Reading Input *.txt or *.csv to SourceRecord model list
-                    List<SourceRecord> readSourceRecords = this.ParseSource(kvp.Key, kvp.Value);
-                    // Transforming SourceRecord list to CityModel list
-                    List<CityModel> transformedCities = this.TransfromSourceData(readSourceRecords);
-                    // Exporting CityModel list to json string
-                    string jsonCities = this.SerializeCitiesToJson(transformedCities);
-                    // Saving json
-                    SaveJson(String.Join("/", GetTodaysDirectoryPath(), $"output{CurrentOutputNumber()}.json"), jsonCities);
-                });
-                fileProcessingThread.Start();
-            }
+            // Start processing of files in input
+            this.StartProcessing();
         }
 
         protected override void OnStop()
@@ -78,7 +50,48 @@ namespace RadencyPaymentProcessorService
             input_source_path = ConfigurationManager.AppSettings["SourcePath"];
             output_source_path = ConfigurationManager.AppSettings["ProcessedDataPath"];
             date_format = ConfigurationManager.AppSettings["DateFormat"];
-        }
+		}
+        private void StartProcessing()
+        {
+			// Processing
+			List<SourceRecord> sourceRecords = new List<SourceRecord>();
+			Dictionary<string, bool> processingQueue = new Dictionary<string, bool>();
+			// Getting list of csv files
+			foreach (string csvPath in this.GetCsvFiles())
+			{
+				processingQueue.Add($@"{input_source_path}\{csvPath}", true);
+			}
+			// Getting list of txt files
+			foreach (string txtPath in this.GetTxtFiles())
+			{
+				processingQueue.Add($@"{input_source_path}\{txtPath}", false);
+			}
+			// Processing files
+			foreach (KeyValuePair<string, bool> kvp in processingQueue)
+			{
+				// Processing each file in thread
+				Thread fileProcessingThread = new Thread(() =>
+				{
+					// Reading Input *.txt or *.csv to SourceRecord model list
+					List<SourceRecord> readSourceRecords = this.ParseSource(kvp.Key, kvp.Value);
+					// Transforming SourceRecord list to CityModel list
+					List<CityModel> transformedCities = this.TransfromSourceData(readSourceRecords);
+					// Exporting CityModel list to json string
+					string jsonCities = this.SerializeCitiesToJson(transformedCities);
+					// Saving json
+					SaveJson(String.Join("/", GetTodaysDirectoryPath(), $"output{CurrentOutputNumber()}.json"), jsonCities);
+					try
+					{
+						File.Delete(kvp.Key);
+					}
+					catch (Exception ex)
+					{
+						ReportError(ex, "Deleting file from input directory");
+					}
+				});
+				fileProcessingThread.Start();
+			}
+		}
         private void ReportError(Exception exception, string comment = "", bool showDetails = true)
         {
             string log = String.Join(" | ", DateTime.Now, comment);
@@ -323,7 +336,8 @@ namespace RadencyPaymentProcessorService
         }
         private string GetTodaysDirectoryPath()
         {
-            string path = $@"{output_source_path}\{DateTime.Now.ToString(date_format)}";
+            DateTime today = DateTime.Now;
+			string path = String.Join("/", $@"{output_source_path}", $"{today.Day:00}-{today.Month:00}-{today.Year:0000}");
             if (!Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
