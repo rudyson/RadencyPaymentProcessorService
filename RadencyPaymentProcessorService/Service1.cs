@@ -26,6 +26,9 @@ namespace RadencyPaymentProcessorService
         private int telemetry_parsed_lines = 0;
         private int telemetry_found_errors = 0;
         private HashSet<string> telemetry_invalid_files = new HashSet<string>();
+        // Schedulers
+        private Timer callProcessing;
+        private Timer midnightLogSaver;
         public Service1()
         {
             InitializeComponent();
@@ -35,15 +38,26 @@ namespace RadencyPaymentProcessorService
         {
             // Reading configuration from App.config
             this.ReadConfiguration();
-            // Start processing of files in input
-            this.StartProcessing();
-        }
+			// Start processing of files in input every 5 minutes
+			callProcessing = new Timer(
+                StartProcessing,null,
+                TimeSpan.Zero,
+                TimeSpan.FromMinutes(5));
+			// Saving logs in the end of the day
+			TimeSpan timeUntilMidnight = DateTime.Now.Date.AddDays(1) - DateTime.Now;
+			midnightLogSaver = new Timer(
+                SaveLogs, null,
+				DateTime.Now.Date.AddDays(1) - DateTime.Now,
+                TimeSpan.FromDays(1));
+
+		}
 
         protected override void OnStop()
         {
+			callProcessing.Dispose();
+			midnightLogSaver.Dispose();
             // Saving logs
-            SaveMetaLog(String.Join("/", GetTodaysDirectoryPath(), "meta.log"));
-            SaveErrorLog(String.Join("/", GetTodaysDirectoryPath(), "error.log"));
+            SaveLogs(null);
         }
         private void ReadConfiguration()
         {
@@ -51,7 +65,13 @@ namespace RadencyPaymentProcessorService
             output_source_path = ConfigurationManager.AppSettings["ProcessedDataPath"];
             date_format = ConfigurationManager.AppSettings["DateFormat"];
 		}
-        private void StartProcessing()
+        private void SaveLogs(object state)
+        {
+			// Saving logs
+			SaveMetaLog(String.Join("/", GetTodaysDirectoryPath(), "meta.log"));
+			SaveErrorLog(String.Join("/", GetTodaysDirectoryPath(), "error.log"));
+		}
+        private void StartProcessing(object state)
         {
 			// Processing
 			List<SourceRecord> sourceRecords = new List<SourceRecord>();
